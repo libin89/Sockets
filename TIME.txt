@@ -1,0 +1,303 @@
+### 时间与时区
+* ----------------------------------------------------------------------------------------------------------------------------------------------
+整个地球分为二十四时区，每个时区都有自己的本地时间。
+UTC时间 与 GMT时间
+我们可以认为格林威治时间就是时间协调时间（GMT = UTC），格林威治时间和UTC时间都用秒数来计算的。
+UTC时间与本地时间
+UTC + 时区差 = 本地时间
+时区差东为正，西为负。在此，把东八区时区差记为 +0800
+UTC + (+0800) = 本地（北京）时间
+UTC与Unix时间戳
+在计算机中看到的UTC时间都是从（1970年01月01日 0:00:00)开始计算秒数的。所看到的UTC时间那就是从1970年这个时间点起到具体时间共有多少秒。 这个秒数就是Unix时间戳
+* ------------------------------------------------------------------------------------------------------------------------------------------------
+
+************************************************************
+1. time（取得目前的时间）
+函数说明：
+#include<time.h>
+time_t time(time_t *t);
+此函数会返回从公元1970年1月1日的UTC时间从0时0分0秒算起到现在所经过的秒数。如果t 并非空指针的话，此函数也会将返回值存到t指针所指的内存。
+返回：成功则返回秒数，失败则返回((time_t)-1)值，错误原因存于errno中。
+代码说明：
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+
+int main(int argc, char** argv)
+{
+    int seconds = time(NULL);
+    printf("%d\n", seconds);
+    return 0;
+}
+执行结果：
+[root@linuxidc_CentOS unixtime]# g++ -g -o unixtime_time unixtime_time.cpp
+[root@linuxidc_centos unixtime]# ./unixtime_time
+1445008165
+* -------------------------------------------------------------------------------------------------------------
+
+************************************************************
+2. gmtime（取得目前时间和日期）
+函数说明：
+#include<time.h>
+struct tm*gmtime(const time_t*timep);
+gmtime()将参数timep所指的time_t结构中的信息转换成真实世界所使用的时间日期表示方法，然后将结果由结构tm返回。
+结构tm的定义为：
+struct tm
+{
+    int tm_sec;
+    int tm_min;
+    int tm_hour;
+    int tm_mday;
+    int tm_mon;
+    int tm_year;
+    int tm_wday;
+    int tm_yday;
+    int tm_isdst;
+};
+int tm_sec 代表目前秒数，正常范围为0-59，但允许至61秒
+int tm_min 代表目前分数，范围0-59
+int tm_hour 从午夜算起的时数，范围为0-23
+int tm_mday 目前月份的日数，范围01-31
+int tm_mon 代表目前月份，从一月算起，范围从0-11
+int tm_year 从1900年算起至今的年数
+int tm_wday 一星期的日数，从星期一算起，范围为0-6
+int tm_yday 从今年1月1日算起至今的天数，范围为0-365
+int tm_isdst 日光节约时间的旗标
+此函数返回的时间日期未经时区转换，而是UTC时间。
+返回：结构tm代表目前UTC 时间
+代码说明：
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+
+int main(int argc, char** argv)
+{
+    const char* wday[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+    time_t timep;
+    struct tm* p;
+    time(&timep);
+    p = gmtime(&timep);
+    printf("curday = %d-%d-%d\n", (1900+p->tm_year), (1+p->tm_mon), p->tm_mday);
+    printf("curweek = %s, curtime = %d:%d:%d\n", wday[p->tm_wday], p->tm_hour, p->tm_min, p->tm_sec);
+    return 0;
+}
+ 
+结果说明：
+[root@linuxidc_centos unixtime]# g++ -g -o unixtime_gmtime unixtime_gmtime.cpp
+[root@linuxidc_centos unixtime]# ./unixtime_gmtime
+curday = 2015-10-16
+curweek = Fri, curtime = 15:12:12
+[root@linuxidc_centos unixtime]# date -u          
+Fri Oct 16 15:12:13 UTC 2015
+[root@linuxidc_centos unixtime]# date
+Fri Oct 16 23:12:16 CST 2015
+[root@linuxidc_centos unixtime]# date -R    #这里打印出时区信息，北京为东八区
+Fri, 16 Oct 2015 23:12:18 +0800
+可以看到gmtime返回的时间日期未经过时区转换，这里和date打印的刚好差8小时（中国时区）。
+* -------------------------------------------------------------------------------------------------------------
+
+************************************************************
+3. ctime（将时间和日期以字符串格式表示）
+函数说明：
+#include<time.h>
+char *ctime(const time_t *timep);
+ctime()将参数timep所指的time_t结构中的信息转换成真实世界所使用的时间日期表示方法，然后将结果以字符串形态返回。若再调用相关的时间日期函数，此字符串可能会被破坏。
+代码说明：
+ 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+
+int main(int argc, char** argv)
+{
+    time_t timep;
+    time(&timep);
+    printf("%s",ctime(&timep));
+    return 0;
+}
+ 
+结果说明：
+[root@linuxidc_centos unixtime]# g++ -g -o unixtime_ctime unixtime_ctime.cpp
+[root@linuxidc_centos unixtime]# ./unixtime_ctime
+Fri Oct 16 23:14:33 2015
+[root@linuxidc_centos unixtime]# date
+Fri Oct 16 23:14:34 CST 2015
+* -------------------------------------------------------------------------------------------------------------
+
+************************************************************
+4. asctime（将时间和日期以字符串格式表示）
+函数说明：
+#include<time.h>
+char * asctime(const struct tm * timeptr);
+asctime()将参数timeptr所指的tm结构中的信息转换成真实世界所使用的时间日期表示方法，然后将结果以字符串形态返回。若再调用相关的时间日期函数，此字符串可能会被破坏。此函数与ctime不同处在于传入的参数是不同的结构。
+代码说明：
+ 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+
+int main(int argc, char** argv)
+{
+    time_t timep;
+    time(&timep);
+    printf("%s", asctime(gmtime(&timep)));
+}
+ 
+结果说明：
+[root@linuxidc_centos unixtime]# g++ -g -o unixtime_asctime unixtime_asctime.cpp
+[root@linuxidc_centos unixtime]# ./unixtime_asctime
+Fri Oct 16 15:15:54 2015
+[root@linuxidc_centos unixtime]# date
+Fri Oct 16 23:15:55 CST 2015
+[root@linuxidc_centos unixtime]# date -u
+Fri Oct 16 15:15:57 UTC 2015
+[root@linuxidc_centos unixtime]# date -R
+Fri, 16 Oct 2015 23:16:01 +0800
+注意这里struct tm结构的时间是通过gmtime返回的，因此也没有经过时区转换。
+* -------------------------------------------------------------------------------------------------------------
+
+************************************************************
+5. gettimeofday（取得目前的时间）
+函数说明：
+#include <sys/time.h>
+#include <unistd.h>
+int gettimeofday ( struct timeval * tv , struct timezone * tz )
+gettimeofday()会把目前的时间有tv所指的结构返回，当地时区的信息则放到tz所指的结构中。
+timeval结构定义为:
+struct timeval {
+    long tv_sec; /*秒*/
+    long tv_usec; /*微秒*/
+};
+timezone结构定义为：
+struct timezone {
+    int tz_minuteswest; /*和Greenwich 时间差了多少分钟*/
+    int tz_dsttime; /*日光节约时间的状态*/
+};
+上述两个结构都定义在/usr/include/sys/time.h，tz_dsttime 所代表的状态如下
+DST_NONE /*不使用*/
+DST_USA /*美国*/
+DST_AUST /*澳洲*/
+DST_WET /*西欧*/
+DST_MET /*中欧*/
+DST_EET /*东欧*/
+DST_CAN /*加拿大*/
+DST_GB /*大不列颠*/
+DST_RUM /*罗马尼亚*/
+DST_TUR /*土耳其*/
+DST_AUSTALT /*澳洲（1986年以后）*/
+返回：成功则返回0，失败返回-1，错误代码存于errno。
+代码说明：
+ 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include<sys/time.h>
+
+int main(int argc, char** argv)
+{
+    struct timeval tv;
+    struct timezone tz;
+    gettimeofday(&tv, &tz);
+    printf("tv_sec = %d, tv_usec = %d, tz_minuteswest = %d, tz_dsttime = %d\n", 
+            tv.tv_sec, tv.tv_usec, tz.tz_minuteswest, tz.tz_dsttime) ;
+    
+    return 0;
+}
+ 
+结果说明：
+[root@VM_174_centos unixtime]# g++ -g -o unixtime_gettimeofday unixtime_gettimeofday.cpp
+[root@VM_174_centos unixtime]# ./unixtime_gettimeofday
+tv_sec = 1445008619, tv_usec = 699804, tz_minuteswest = -480, tz_dsttime = 0
+[root@linuxidc_centos unixtime]# date
+Fri Oct 16 23:17:00 CST 2015
+[root@linuxidc_centos unixtime]# date -u
+Fri Oct 16 15:17:02 UTC 2015
+这里时区差是-480，也就是说明GMT比我们（中国时区）晚8小时。
+* -------------------------------------------------------------------------------------------------------------
+
+************************************************************
+6. localtime（取得当地目前时间和日期）
+函数说明：
+#include<time.h>
+struct tm *localtime(const time_t * timep);
+localtime()将参数timep所指的time_t结构中的信息转换成真实世界所使用的时间日期表示方法，然后将结果由结构tm返回。结构tm的定义请参考gmtime()。此函数返回的时间日期已经转换成当地时区。
+代码说明：
+ 
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+
+int main(int argc, char** argv)
+{
+    const char* wday[] = {"Sun","Mon","Tue","Wed","Thu","Fri","Sat"};
+    time_t timep;
+    struct tm* p;
+    time(&timep);
+    p = localtime(&timep);
+    printf("curday = %d-%d-%d\n", (1900+p->tm_year), (1+p->tm_mon), p->tm_mday);
+    printf("curweek = %s, curtime = %d:%d:%d\n", wday[p->tm_wday], p->tm_hour, p->tm_min, p->tm_sec);
+    return 0;
+}
+ 
+结果说明：
+[root@linuxidc_centos unixtime]# g++ -g -o unixtime_localtime unixtime_localtime.cpp
+[root@linuxidc_centos unixtime]# ./unixtime_localtime
+curday = 2015-10-16
+curweek = Fri, curtime = 23:23:37
+[root@linuxidc_centos unixtime]# ./unixtime_gmtime   
+curday = 2015-10-16
+curweek = Fri, curtime = 15:23:37
+这里的结果跟gmtime的结果进行比较，可以看出，gmtime给出的是GMT标准时间，localtime给出的是根据时区转换过的本地时间（这里是北京时间，东八区，+0800）。
+* -------------------------------------------------------------------------------------------------------------
+
+************************************************************
+7. mktime（将时间结构数据转换成经过的秒数）
+函数说明：
+time_t mktime(strcut tm * timeptr);
+mktime()用来将参数timeptr所指的tm结构数据转换成从公元1970���1月1日0时0分0秒算起至今的UTC时间所经过的秒数。
+返回：返回经过的秒数。
+代码说明：
+ 
+/* 
+ * 用time()取得时间（秒数），利用localtime()
+ * 转换成struct tm 再利用mktine（）将struct tm转换成原来的秒数
+ */
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <time.h>
+
+int main(int argc, char** argv)
+{
+    time_t timep;
+    struct tm* p;
+    time(&timep);
+    printf("time() = %d\n", timep);
+    p = localtime(&timep);
+    timep = mktime(p);
+    printf("time()->localtime()->mktime():%d\n", timep);
+    return 0;
+}
+ 
+结果说明：
+[root@linuxidc_centos unixtime]# g++ -g -o unixtime_mktime unixtime_mktime.cpp
+[root@linuxidc_centos unixtime]# ./unixtime_mktime
+time() = 1445010682
+time()->localtime()->mktime():1445010682
+* -------------------------------------------------------------------------------------------------------------
+
+************************************************************
+8. settimeofday（设置目前时间）
+函数说明：
+#include<sys/time.h>
+#include<unistd.h>
+int settimeofday ( const struct timeval *tv,const struct timezone *tz);
+settimeofday()会把目前时间设成由tv所指的结构信息，当地时区信息则设成tz所指的结构。详细的说明请参考gettimeofday()。注意，只有root权限才能使用此函数修改时间。
+返回：成功则返回0，失败返回－1，错误代码存于errno。
+EPERM 并非由root权限调用settimeofday（），权限不够。
+EINVAL 时区或某个数据是不正确的，无法正确设置时间。

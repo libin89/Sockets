@@ -22,13 +22,13 @@
 ## Create and destroy socket
 
 > int socket(int domain, int type, int protocol)
-domain: IPv4(AF_INET), IPv6(AF_INET6) ...
-type: SOCK_STREAM, SOCK_DGRAM ...
-protocol: IPPROTO_TCP, IPPROTO_UDP ...
-return -1:fail, nonegative:success
+* domain: IPv4(AF_INET), IPv6(AF_INET6) ...
+* type: SOCK_STREAM, SOCK_DGRAM ...
+* protocol: IPPROTO_TCP, IPPROTO_UDP ...
+* return -1:fail, nonegative:success
 
 > int close(int socket)
-success will return 0, fail return -1
+* success will return 0, fail return -1
 
 ## Specific address
 ### General address
@@ -39,9 +39,8 @@ success will return 0, fail return -1
 ### IPv4 address
 `struct in_addr {
     uint32_t s_addr;  //Internet address (32 bits)
-};
-
-struct sockaddr_in {
+};`
+`struct sockaddr_in {
     sa_family_t sin_family; //Internet protocol (AF_INET)
     in_port_t sin_port;     //Address port (16 bits)
     struct in_addr sin_addr;//IPv4 address (32 bits)
@@ -50,9 +49,8 @@ struct sockaddr_in {
 ### IPv6 address
 `srtuct in_addr {
     uint32_t s_addr[16];  //Internet address (128 bits)
-};
-
-struct sockaddr_in6 {
+};`
+`struct sockaddr_in6 {
     sa_family_t sin6_family;   //Internet protocol (AF_INET6)
     in_port_t sin6_port;       //Address port (16 bits)
     uint32_t sin6_flowinfo;    //Flow information
@@ -137,4 +135,76 @@ struct sockaddr_in6 {
     struct addrinfo *ai_next; //Next addrinfo in linked list
 };`
 * addrinfo各字段详细信息（暂略）
-### 编写地址通用的代码（代码已同步更新）
+### 编写地址通用的代码（待更新）
+
+## 超越基本的套接字编程
+### 套接字选项
+* getsockopt()和setsockopt()分别允许查询和设置套接字选项值
+> int getsockopt(int socket, int level, int optName, void *optVal, socklen_t *optLen)
+> int setsockopt(int socket, int level, int optName, const void *optVal, socklen_t optLen)
+* 查看每个层级的_一些常用的选项，包括optVal指向的缓冲区的说明和数据类型（TCP_IP_Sockets编程page108）
+### 信号
+* 在TCP套接字上发送数据的任何程序都必须显示处理SIGPIPE以便保证健壮性。
+* ---------------------------------------------------------------
+*   类型                  触发事件                     默认行为
+* SIGALRM              报警计时器到期                    终止
+* SIGCHLD              子进程退出                       忽略
+* SIGINT               中断字符（Ctrl+C）输入            终止
+* SIGIO                套接字为I/O做好准备               忽略
+* SIGPIPE              尝试写到关闭的套接字               终止
+* ----------------------------------------------------------------
+* 应用程序可以使用sigaction()更改特定信号的默认行为
+> int sigaction(int whichSignal, const struct sigaction *newAction, struct sigaction *oldAction)
+* 成功返回0，失败返回-1
+`struct sigaction {`
+`   void (*sa_handler)(int);  //Signal handler`
+`   sigset_t sa_mask; //Signals to be blocked during handler execution`
+`   int sa_flags; //Flags to modify default behavior`
+`};`
+* sa_mask被实现为一组布尔标志，其中每个标志用于一种信号。以下函数可以操纵这组标志：
+> int sigemptyset(sigset_t *set)
+> int sigfillset(sigset_t *set)
+> int sigaddset(sigset_t *set, int whichSignal)
+> int sigdelset(sigset_t *set, int whichSignal)
+* 成功返回0，失败返回-1
+* **认识到信号不会排队很重要--信号要么是挂起的，要么不是。如果在处理信号时把相同的信号递送多次，那么在处理程序完成原始执行之后它只会执行一次。**
+* 信号的最重要的方面之一与套接字接口相关。
+* 如果在套接字调用（如recv()或connect()）中阻塞程序时递送信号，并且指定了用于该信号的处理程序，那么一旦处理程序执行完成，套接字调用将返回-1，并且把errno设置为EINTR。因此，**用于捕获和处理信号的程序需要为从可能阻塞的系统调用返回的这些错误做好准备。**
+* SIGPIPE的默认行为是终止程序，因此没有改变这种行为的服务器可能会被行为失常的客户所终止。**服务器总是应该处理SIGPIPE，使得他们可以检测到客户的消失，并收回用于给它提供服务的任何资源。**
+### 非阻塞I/O
+### 非阻塞套接字
+> int fcntl(int socket, int command, ...)
+### 异步I/O
+* SIGIO
+### 超时
+* 实现超时的标准方法是在调用阻塞函数之前设置alarm
+> unsigned int alarm(unsigned int secs)
+* alarm()启动一个计时器，它在经过指定的秒数之后到期；alarm()为以前预定的任何报警返回剩余的秒数（或者如果没有预定报警，就返回0）.当计时器到期时，就把SIGALRM信号发送给进程，并且执行用于SIGALRM的处理函数（如果有的话）。
+* example at page 120(TCP_IP_Sockets编程)
+
+## 多任务处理
+### 每个客户一个进程
+> pid_t wait(int *statloc);
+> pid_t waitpid(pid_t pid,int *statloc, int options);
+* statloc指向终止进程的终止状态，如果不关心终止状态可指定为空指针
+* pid有四种情况：
+* 1.pid==-1 等待任意子进程
+* 2.pid>0 等待进程ID与pid相等的子进程
+* 3.pid==0 等待组ID等于调用进程组ID的任意子进程
+* 4.pid<-1 等待组ID等于pid绝对值的任意子进程
+* options控制waitpid的操作：
+* 1,2是支持作业控制
+* 1.WCONTINUED
+* 2.WUNTRACED
+* 3.WNOHANG  waitpid不阻塞
+* 在子进程终止前，wait使其调用者阻塞，waitpid有一个选项可使调用者不阻塞。
+* waitpid并不等待在其调用之后第一个终止的子进程，它有若干选项。换言之可以不阻塞。
+* 事实上：
+`pid_t wait(int *statloc)
+{
+    return waitpid(-1, statloc, 0);
+}`
+* **守护进程（deamon.c）**
+* **时间与时区（TIME.md）**
+
+
