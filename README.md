@@ -206,5 +206,58 @@
 }`
 * **守护进程（deamon.c）**
 * **时间与时区（TIME.md）**
+### 每个客户一个线程
+### 受限的多任务处理
+### 多路复用
+* 利用select()函数，程序可以指定一份要为挂起的I/O检查的描述符列表；select()会挂起程序，直到列表中的某个描述符准备好执行I/O并且返回哪些描述符已做好准备的指示为止。然后，程序可以在那个描述符上继续执行I/O，并且操作将不会阻塞。
+> int select(int maxDescPlus1, fd_set *readDescs, fd_set *writeDescs,
+    fd_set *execptionDescs, struct timeval *timeout)
+* select()监视三个单独的描述符列表（注意：这些描述符可能引用常规的文件--比如终端输入--以及套接字）
+* readDescs: 这个列表中的描述符用于检查即时的输入数据可用性；也就是说，调用recv()(或者recvfrom())将不会阻塞)。
+* writeDescs: 这个列表中的描述符用于检查是否可以立即写数据；也就是说，调用send()(或者sendto())将不会阻塞)。
+* exceptionDescs: 这个列表的描述符用于检查挂起的异常或者错误。（TCP套接字异常的一个例子，TCP套接字远端已经关闭，而数据仍然在信道中；在这种情况下，下一个读或写操作将会失败，并且会返回ECONNRESET）。
+* 为任何描述符向量传递NULL将使得select()忽略I/O的类型。
+* maxDescPlus1: 最大描述符值加1。
+* timeout允许控制select()将为某件事情发生而等待多长时间。
+* 如果经过了timeval结构中指定的时间之后，任何指定的描述符都还没有为I/O准备好，select()返回0。如果timeout时NULL，select()就没有超时限制，并且一直等待某个描述符做好准备为止。把tv_sec和tv_usec都置0将导致select()立即返回，从而允许轮询I/O描述符。
+* 如果没有错误发生，select()返回I/O做好准备的描述符总个数。为指示描述符做好准备，select()会设置对应的位置。返回值-1指示select()中的错误。
+* 系统提供给的宏，用于操作fd_set类型的实例：
+> void FD_ZERO(fd_set *descriptorVector)
+> void FD_CLR(int descriptor, fd_set *descriptorVector)
+> void FD_SET(int descriptor, fd_set *descriptorVector)
+> int FD_ISSET(int descriptor, fd_set *descriptorVector)
+* FD_ZERO is used to clear descriptor list. 
+* FD_CLR() and FD_SET() are used to delete and add descriptor respectively. 
+* FD_ISSET()测试描述符在列表中的从属关系，如果给定的描述符在列表中，它就返回一个非0值；否则，就返回0.
+* select()是一个功能强大的函数。它也可用于实现任何阻塞的I/O函数（例如，recv()，accept()）的超时版本，而无需使用报警。
 
+## 揭秘
+### 缓冲和TCP
+* **使用TCP套接字时，不能假设写到连接一端的数据大小与从连接另一端读取的数据大小之间存在任何一致性。** 
+* send() -> 底层SendQ缓冲 -> TCP协议 -> 底层RecvQ接收缓冲 -> recv() -> Delivered
+* SendQ：在发送者的底层实现中缓冲的字节，它们已经写到输出流中，但还没有成功地传输到接收主机。
+* RecvQ：在接收者的底层实现中缓冲的字节，等待递送到接收程序----即从输入流中读取。
+* Delivered：接收者已经从输入流中读取的字节。
+* 在接收端调用send()将向SendQ中追加字节。TCP协议负责移动字节---从SendQ中到RecvQ中。这种转移不受用户程序控制或者不能被它直接观察到，并且在块中发生，这些块的大小或多或少地独立于send()传入的缓冲区的大小，认识到这一点很重要。通过调用recv()把字节从RecvQ移到Delivered中；传输的块的大小依赖于RecvQ中的数据量以及提供给recv()的缓冲区的大小。
+### 死锁风险
+* 要仔细设计协议，以避免在两个方向上同时发送大量的数据。
+### 关于性能
+* TCP实现要求在发送用户数据之前按把它复制到SendQ中，这涉及到性能。
+* SendQ和RecvQ缓冲区的大小会影响可以通过TCP连接实现的吞吐量（throughout）。
+* 如果吞吐量时程序的一个重要性能指标，可以考虑使用SO_RCVBUF和SO_SNDBUF套接字选项更改发送和接收缓冲区的大小。
+* NOTE：仅当程序需要的发送的数据量远远大于缓冲区大小时，才需要考虑这些情况。
+* NOTE：在FILE流中包装TCP套接字将增加另一个缓冲阶段和额外的开销，从而可能会对吞吐量产生负面影响。
+### TCP套接字的生存期
+### 关闭TCP连接
+* 关闭机制，允许应用程序在终止连接时不必担心可能仍在传输的数据会丢失。两个方向上的数据传输可以独立地终止。
+* 工作方式：
+1. 应用程序调用close()或者shutdown()指示完成数据发送。
+1. 底层TCP首先将传输保留在SendQ中的数据（受到另一端RecvQ中的可用空间支配）
+1. 然后向另一端发送一条关闭TCP的握手消息。该消息可以看作时流终止的标志。
+1. 等待关闭消息的确认，一旦收到确认，该连接就变成半关闭状态（Half closed）。
+1. 直到在连接的另一方向上收到了对称的握手消息后，连接才完全关闭。
+* close()/shutdown()无需等待关闭握手完成即可返回，无法保证保留在SendQ中的数据确实到达另一端。
+* 最佳的解决方案是设计一种应用协议，使得无论哪一端首先执行关闭，仅当它接收到关于数据已接收的应用程序级的保证后，它才这样做。
+### 解多路复用揭秘
 
+## 用C++进行套接字编程
