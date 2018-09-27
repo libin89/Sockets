@@ -9,13 +9,9 @@
 
 static const int MAXPENDING = 5; //Maximum outstanding connection requests
 
-int main(int argc, char *argv[])
+int main_server(int argc, char *argv[])
 {
-
-    if (argc != 2)  //Test for correct number of arguments
-        DieWithUserMessage("Parameter(s", "<Server Port>");
-    
-    in_port_t servPort = atoi(argv[1]);  //First arg: local port
+    in_port_t servPort = tcpConnection.servPort;  //local port
 
     //Create socket for incoming connections
     int servSock;  //Socket descriptor for server
@@ -45,7 +41,7 @@ int main(int argc, char *argv[])
     //Bind to the local address
     if (bind(servSock, (struct sockaddr*)&servAddr, sizeof(servAddr)) < 0)
         DieWithSystemMessage("bind() failed");
-    
+
     //Mark the socket so it will listen for incoming connections
     if (listen(servSock, MAXPENDING) < 0)
         DieWithSystemMessage("listen() failed");
