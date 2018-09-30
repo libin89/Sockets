@@ -340,3 +340,461 @@ endef
 
 ## 使用变量
 ### 变量的基础
+使用变量时，需要给在变量名前加上“$”符号，但最好用小括号“（）”或是大括号“{}”把变量给包括起来。
+如果要使用真是的$字符，需要用“$$”来表示。
+变量就是一个“替代”的原理。
+
+### 变量中的变量
+方式一：使用“=”，在“=”左侧是变量，右侧是变量的值，右侧变量的值可以定义在文件的任何一处，
+也就是说，右侧中的变量不一定非要是已定义好的值，其也可以使用后面定义的值。
+foo = $(bar)
+bar = $(ugh)
+ugh = Huh?
+
+all:
+echo $(foo)
+执行make all将打印Huh?，可见，变量是可以使用后面的变量来定义的。
+
+例子：
+A = $(B)
+B = $(A)
+但是这种方式会让make陷入无限的变量展开过程中去，当然make能检测到这样的定义，并报错。
+
+方式二：
+为了避免上面的这种问题，可以使用“:=”操作符，前面的变量不能使用后面的变量，只能使用前面已定义好了的变量。
+y := $(x) bar
+x := foo
+y的值是“bar”，而不是“foo bar”。
+
+例子：
+ifeq (0,${MAKELEVEL})
+cur-dir := $(shell pwd)
+whoami := $(shell whoami)
+host-type := $(shell arch)
+MAKE := ${MAKE} host-type=${host-type} whoami=${whoami}
+endif
+对于系统变量“MAKELEVEL”，其意思是，如果我们的make有一个嵌套执行的动作
+
+如果我们要定义一个变量，其值是一个空格，那么我们可以这样来：
+nullstring :=
+space := $(nullstring) # end of the line
+nullstring 是一个Empty变量，其中什么也没有，而我们的space的值是一个空格。因为在操作符的右边是很难描述一个空格的，
+这里采用的技术很管用，先用一个 Empty变量来标明变量的值开始了，而后面采用“#”注释符来表示变量定义的终止，这样，
+我们可以定义出其值是一个空格的变量。
+
+请注意这里关于“#”的使用，注释符“#”的这种特性值得我们注意，如果我们这样定义一个变量：
+dir := /foo/bar # directory to put the frobs in
+dir的值是“/foo/bar ”,注意这里有个空格，如果直接使用“$(dir)/file”肯定会错误的。
+
+还有一个比较有用的操作符是“?=”，先看示例：
+FOO ?= bar
+其含义是，如果FOO没有被定义过，那么变量FOO的值就是“bar”，如果FOO先前被定义过，那么这条语将什么也不做，等价于：
+ifeq ($(origin FOO), undefined)
+FOO = bar
+endif
+
+### 变量高级用法
+用法一：变量值的替换，其格式是“$(var:a=b)”或是“${var:a=b}”，
+其意思是，把变量“var”中所有以“a”字串“结尾”的“a”替换成“b”字串。这里的“结尾”意思是“空格”或是“结束符”。
+foo := a.o b.o c.o
+bar := $(foo:.o=.c)
+先定义了一个“$(foo)”变量，而第二行的意思是把“$(foo)”中所有以“.o”字串“结尾”全部替换成“.c”，
+所以我们的“$(bar)”的值就是“a.c b.c c.c”。
+
+另一种变量替换的技术是以“静态模式”定义，如：
+foo := a.o b.o c.o
+bar := $(foo:%.o=%.c)
+这依赖于被替换字串中的有相同的模式，模式中必须包含一个“%”字符，这个例子同样让$(bar)变量的值为“a.c b.c c.c”。
+
+用法二：把变量的值再当成变量，如：
+x = y
+y = z
+a := $($(x))
+在这个例子中，$(x)的值是“y”，所以$($(x))就是$(y)，于是$(a)的值就是“z”。
+
+用例：
+first_second = Hello
+a = first
+b = second
+all = $($a_$b)
+这里的“$a_$b”组成了“first_second”，于是，$(all)的值就是“Hello”。
+
+用例:
+a_objects := a.o b.o c.o
+1_objects := 1.o 2.o 3.o
+sources := $($(a1)_objects:.o=.c)
+如果$(a1)的值是“a”的话，那么，$(sources)的值就是“a.c b.c c.c”；如果$(a1)的值是“1”，
+那么$(sources)的值是“1.c 2.c 3.c”。
+
+用例：
+dir = foo
+$(dir)_sources := $(wildcard $(dir)/*.c)
+define $(dir)_print
+lpr $($(dir)_sources)
+endef
+这个例子中定义了三个变量：“dir”，“foo_sources”和“foo_print”。
+
+### 追加变量
+操作符“+=”，如果变量之前没有定义过，那么，“+=”会自动变成“=”，如果前面有变量定义，
+那么“+=”会继承于前次操作的赋值符。如果前一次的是“:=（=）”，那么“+=”会以“:=（=）”作为其赋值符。
+
+用例：
+variable := value
+variable += more
+等价于：
+variable := value
+variable := $(variable) more
+
+用例：
+objects = main.o foo.o bar.o utils.o
+objects += another.o
+于是，我们的$(objects)值变成：“main.o foo.o bar.o utils.o another.o”（another.o被追加进去了）
+
+### override指示符
+如果有变量是通常make的命令行参数设置的，那么Makefile中对这个变量的赋值会被忽略。
+如果你想在Makefile中设置这类参数的值，那么，你可以使用“override”指示符。其语法是：
+override <variable> = <value>
+override <variable> := <value>
+还可以追加：
+override <variable> += <more text>
+
+对于多行的变量定义，我们用define指示符，在define指示符前，也同样可以使用ovveride指示符，如：
+override define foo
+bar
+endef
+
+### 多行变量
+还有一种设置变量值的方法是使用define关键字。使用define关键字设置变量的值可以有换行，
+这有利于定义一系列的命令（前面我们讲过“命令包”的技术就是利用这个关键字）。
+
+define 指示符后面跟的是变量的名字，而重起一行定义变量的值，定义是以endef关键字结束。
+其工作方式和“=”操作符一样。变量的值可以包含函数、命令、文字，或是其它变量。因为命令需要以[Tab]键开头，
+所以如果你用define定义的命令变量中没有以[Tab]键开头，那么make就不会把其认为是命令。
+define two-lines
+echo foo
+echo $(bar)
+endef
+
+### 环境变量
+make 运行时的系统环境变量可以在make开始运行时被载入到Makefile文件中，但是如果Makefile中已定义了这个变量，
+或是这个变量由make命令行带入，那么系统的环境变量的值将被覆盖。（如果make指定了“-e”参数，那么，系统环境变量
+将覆盖Makefile中定义的变量）
+
+因此，如果我们在环境变量中设置了“CFLAGS”环境变量，那么我们就可以在所有的Makefile中使用这个变量了。这对于我们
+使用统一的编译参数有比较大的好处。如果Makefile中定义了CFLAGS，那么则会使用Makefile中的这个变量，如果没有定义
+则使用系统环境变量的值，一个共性和个性的统一，很像“全局变量”和“局部变量”的特性。     
+当make嵌套调用时（参见前面的“嵌套调用”章节），上层Makefile中定义的变量会以系统环境变量的方式传递到下层的Makefile中。
+当然，默认情况下，只有通过命令行设置的变量会被传递。而定义在文件中的变量，如果要向下层Makefile传递，则需要使用
+exprot关键字来声明。（参见前面章节）
+
+当然，我并不推荐把许多的变量都定义在系统环境中，这样，在我们执行不用的Makefile时，拥有的是同一套系统变量，
+这可能会带来更多的麻烦。
+
+### 目标变量
+前面我们所讲的在Makefile中定义的变量都是“全局变量”，在整个文件，我们都可以访问这些变量。当然，“自动化变量”除外，
+如“$<”等这种类量的自动化变量就属于“规则型变量”，这种变量的值依赖于规则的目标和依赖目标的定义。
+
+同样也可以为某个目标设置局部变量，这种变量被称为“Target-specific Variable”，它可以和“全局变量”同名，
+因为它的作用范围只在这条规则以及连带规则中，所以其值也只在作用范围内有效。而不会影响规则链以外的全局变量的值。
+其语法是：
+<target ...> : <variable-assignment>
+<target ...> : overide <variable-assignment>
+<variable-assignment>可以是前面讲过的各种赋值表达式，如“=”、“:=”、“+=”或是“？=”。
+第二个语法是针对于make命令行带入的变量，或是系统环境变量。
+
+prog : CFLAGS = -g
+prog : prog.o foo.o bar.o
+        $(CC) $(CFLAGS) prog.o foo.o bar.o
+
+prog.o : prog.c
+        $(CC) $(CFLAGS) prog.c
+
+foo.o : foo.c
+        $(CC) $(CFLAGS) foo.c
+
+bar.o : bar.c
+        $(CC) $(CFLAGS) bar.c
+ 在这个示例中，不管全局的$(CFLAGS)的值是什么，在prog目标，以及其所引发的所有规则中（prog.o foo.o bar.o的规则），
+ $(CFLAGS)的值都是“-g”。
+
+ ### 模式变量
+ 在GNU的make中，还支持模式变量（Pattern-specific Variable），通过上面的目标变量中，我们知道，变量可以定义在某个目标上。
+ 模式变量的好处就是，我们可以给定一种“模式”，可以把变量定义在符合这种模式的所有目标上。
+ make的“模式”一般是至少含有一个“%”的，所以，我们可以以如下方式给所有以[.o]结尾的目标定义目标变量：
+ %.o : CFLAGS = -O
+
+ 同样，模式变量的语法和“目标变量”一样：
+
+<pattern ...> : <variable-assignment>
+<pattern ...> : override <variable-assignment>
+override同样是针对于系统环境传入的变量，或是make命令行指定的变量。
+
+### 条件表达式语法：
+<conditional-directive>
+<text-if-true>
+endif
+
+<conditional-directive>
+<text-if-true>
+else
+<text-if-false>
+endif
+
+其中<conditional-directive>表示条件关键字，如“ifeq”。这个关键字有四个。
+
+第一个关键字“ifeq”
+ifeq (<arg1>, <arg2> )
+ifeq '<arg1>' '<arg2>'
+ifeq "<arg1>" "<arg2>"
+ifeq "<arg1>" '<arg2>'
+ifeq '<arg1>' "<arg2>"
+比较参数“arg1”和“arg2”的值是否相同。当然，参数中我们还可以使用make的函数。如：
+ifeq ($(strip $(foo)),)
+<text-if-empty>
+endif
+
+第二个关键字“ifneq”
+ifneq (<arg1>, <arg2> )
+ifneq '<arg1>' '<arg2>'
+ifneq "<arg1>" "<arg2>"
+ifneq "<arg1>" '<arg2>'
+ifneq '<arg1>' "<arg2>"
+其比较参数“arg1”和“arg2”的值是否相同，如果不同，则为真。和“ifeq”类似。
+
+第三个条件关键字是“ifdef”。语法是：
+ifdef <variable-name>
+如果变量<variable-name>的值非空，那到表达式为真。否则，表达式为假。
+当然，<variable-name>同样可以是一个函数的返回值。注意，ifdef只是测试一个变量是否有值，
+其并不会把变量扩展到当前位置。还是来看两个例子：
+例1：
+bar =
+foo = $(bar)
+ifdef foo
+frobozz = yes
+else
+frobozz = no
+endif
+例2：
+foo =
+ifdef foo
+frobozz = yes
+else
+frobozz = no
+endif
+第一个例子中，“$(frobozz)”值是“yes”，第二个则是“no”。
+
+第四个条件关键字是“ifndef”。其语法是：
+ifndef <variable-name>
+这个跟“ifdef”是相反的意思。
+
+在<conditional-directive>这一行上，多余的空格是被允许的，但是不能以[Tab]键做为开始（不然就被认为是命令）。
+而注释符“#”同样也是安全的。“else”和“endif”也一样，只要不是以[Tab]键开始就行了。
+
+特别注意的是，make是在读取Makefile时就计算条件表达式的值，并根据条件表达式的值来选择语句，
+所以，最好不要把自动化变量（如“$@”等）放入条件表达式中，因为自动化变量是在运行时才有的。
+
+## 使用函数
+### 函数的调用语法
+函数调用，很像变量的使用，也是以“$”来标识的，其语法如下：
+$(<function> <arguments>)
+或是
+${<function> <arguments>}
+<function>就是函数名，make支持的函数不多。
+<arguments>是函数的参数，参数间以逗号“,”分隔，而函数名和参数之间以“空格”分隔。
+函数调用以“$”开头，以圆括号或花括号把函数名和参数括起。
+示例：
+comma:= ,
+empty:=
+space:= $(empty) $(empty)
+foo:= a b c
+bar:= $(subst $(space),$(comma),$(foo))
+$(foo)中的空格使用逗号替换，$(bar)值是a,b,c
+
+### 字符串处理函数
+
+1. $(subst <from>,<to>,<text>)
+名称：字符串替换函数——subst。
+功能：把字串<text>中的<from>字符串替换成<to>。
+返回：函数返回被替换过后的字符串。
+
+2. $(patsubst <pattern>,<replacement>,<text>)
+名称：模式字符串替换函数——patsubst。
+功能：查找<text>中的单词（单词以“空格”、“Tab”或“回车”“换行”分隔）是否符合模式<pattern>，
+    如果匹配的话，则以<replacement>替换。这里，<pattern>可以包括通配符“%”，表示任意长度的字串。
+    如果<replacement>中也包含“%”，那么，<replacement>中的这个“%”将是<pattern>中的那个“%”所代表的字串。
+    （可以用“\”来转义，以“\%”来表示真实含义的“%”字符）
+返回：函数返回被替换过后的字符串。
+示例：
+$(patsubst %.c,%.o,x.c.c bar.c)
+把字串“x.c.c bar.c”符合模式[%.c]的单词替换成[%.o]，返回结果是“x.c.o bar.o”
+
+这和我们前面“变量章节”说过的相关知识有点相似。如：
+“$(var:<pattern>=<replacement> )”
+相当于
+“$(patsubst <pattern>,<replacement>,$(var))”，
+
+而“$(var: <suffix>=<replacement> )”
+则相当于
+“$(patsubst %<suffix>,%<replacement>,$(var))”。
+
+例如有：objects = foo.o bar.o baz.o，
+那么，“$(objects:.o=.c)”和“$(patsubst %.o,%.c,$(objects))”是一样的。
+
+3. $(strip <string>)
+名称：去空格函数——strip。
+功能：去掉<string>字串中开头和结尾的空字符。
+返回：返回被去掉空格的字符串值。
+$(strip a b c )
+把字串“a b c ”去到开头和结尾的空格，结果是“a b c”。
+
+4. $(findstring <find>,<in>)
+名称：查找字符串函数——findstring。
+功能：在字串<in>中查找<find>字串。
+返回：如果找到，那么返回<find>，否则返回空字符串。
+$(findstring a,a b c)
+$(findstring a,b c)
+第一个函数返回“a”字符串，第二个返回“”字符串（空字符串）
+
+5. $(filter <pattern...>,<text>)
+名称：过滤函数——filter。
+功能：以<pattern>模式过滤<text>字符串中的单词，保留符合模式<pattern>的单词。可以有多个模式。
+返回：返回符合模式<pattern>的字串。
+sources := foo.c bar.c baz.s ugh.h
+foo: $(sources)
+        cc $(filter %.c %.s,$(sources)) -o foo
+$(filter %.c %.s,$(sources))返回的值是“foo.c bar.c baz.s”。
+
+6. $(filter-out <pattern...>,<text>)
+名称：反过滤函数——filter-out。
+功能：以<pattern>模式过滤<text>字符串中的单词，去除符合模式<pattern>的单词。可以有多个模式。
+返回：返回不符合模式<pattern>的字串。
+objects=main1.o foo.o main2.o bar.o
+mains=main1.o main2.o
+$(filter-out $(mains),$(objects)) 返回值是“foo.o bar.o”。
+
+
+7. $(sort <list>)
+名称：排序函数——sort。
+功能：给字符串<list>中的单词排序（升序）。
+返回：返回排序后的字符串。
+示例：$(sort foo bar lose)返回“bar foo lose” 。
+备注：sort函数会去掉<list>中相同的单词。
+
+8. $(word <n>,<text>)
+名称：取单词函数——word。
+功能：取字符串<text>中第<n>个单词。（从一开始）
+返回：返回字符串<text>中第<n>个单词。如果<n>比<text>中的单词数要大，那么返回空字符串。
+示例：$(word 2, foo bar baz)返回值是“bar”。
+
+9. $(wordlist <s>,<e>,<text>)
+名称：取单词串函数——wordlist。
+功能：从字符串<text>中取从<s>开始到<e>的单词串。<s>和<e>是一个数字。
+返回：返回字符串<text>中从<s>到<e>的单词字串。如果<s>比<text>中的单词数要大，那么返回空字符串。
+    如果<e>大于<text>的单词数，那么返回从<s>开始，到<text>结束的单词串。
+示例： $(wordlist 2, 3, foo bar baz)返回值是“bar baz”。
+
+
+10. $(words <text>)
+名称：单词个数统计函数——words。
+功能：统计<text>中字符串中的单词个数。
+返回：返回<text>中的单词数。
+示例：$(words, foo bar baz)返回值是“3”。
+备注：如果我们要取<text>中最后的一个单词，我们可以这样：$(word $(words <text>),<text>)。
+
+11. $(firstword <text>)
+名称：首单词函数——firstword。
+功能：取字符串<text>中的第一个单词。
+返回：返回字符串<text>的第一个单词。
+示例：$(firstword foo bar)返回值是“foo”。
+备注：这个函数可以用word函数来实现：$(word 1,<text>)。
+
+以上，是所有的字符串操作函数，如果搭配混合使用，可以完成比较复杂的功能。如：
+override CFLAGS += $(patsubst %,-I%,$(subst :, ,$(VPATH)))
+如果我们的“$(VPATH)”值是“src:../headers”，那么“$(patsubst %,-I%,$(subst :, ,$(VPATH)))”
+将返回“-Isrc -I../headers”，这正是cc或gcc搜索头文件路径的参数。
+
+
+### 文件名操作函数
+
+1. $(dir <names...>)
+名称：取目录函数——dir。
+功能：从文件名序列<names>中取出目录部分。目录部分是指最后一个反斜杠（“/”）之前的部分。如果没有反斜杠，那么返回“./”。
+返回：返回文件名序列<names>的目录部分。
+示例： $(dir src/foo.c hacks)返回值是“src/ ./”。
+
+
+2. $(notdir <names...>)
+名称：取文件函数——notdir。
+功能：从文件名序列<names>中取出非目录部分。非目录部分是指最后一个反斜杠（“/”）之后的部分。
+返回：返回文件名序列<names>的非目录部分。
+示例： $(notdir src/foo.c hacks)返回值是“foo.c hacks”。
+
+3. $(suffix <names...>)
+名称：取后缀函数——suffix。
+功能：从文件名序列<names>中取出各个文件名的后缀。
+返回：返回文件名序列<names>的后缀序列，如果文件没有后缀，则返回空字串。
+示例：$(suffix src/foo.c src-1.0/bar.c hacks)返回值是“.c .c”。
+
+4. $(basename <names...>)
+名称：取前缀函数——basename。
+功能：从文件名序列<names>中取出各个文件名的前缀部分。
+返回：返回文件名序列<names>的前缀序列，如果文件没有前缀，则返回空字串。
+示例：$(basename src/foo.c src-1.0/bar.c hacks)返回值是“src/foo src-1.0/bar hacks”。
+
+
+5. $(addsuffix <suffix>,<names...>)
+名称：加后缀函数——addsuffix。
+功能：把后缀<suffix>加到<names>中的每个单词后面。
+返回：返回加过后缀的文件名序列。
+示例：$(addsuffix .c,foo bar)返回值是“foo.c bar.c”。
+
+
+6. $(addprefix <prefix>,<names...>)
+名称：加前缀函数——addprefix。
+功能：把前缀<prefix>加到<names>中的每个单词后面。
+返回：返回加过前缀的文件名序列。
+示例：$(addprefix src/,foo bar)返回值是“src/foo src/bar”。
+
+
+7. $(join <list1>,<list2>)
+名称：连接函数——join。
+功能：把<list2>中的单词对应地加到<list1>的单词后面。如果<list1>的单词个数要比<list2>的多，
+    那么，<list1>中的多出来的单词将保持原样。如果<list2>的单词个数要比<list1>多，那么，
+    <list2>多出来的单词将被复制到<list2>中。
+返回：返回连接过后的字符串。
+示例：$(join aaa bbb , 111 222 333)返回值是“aaa111 bbb222 333”。
+
+
+### 其他功能函数
+
+1. foreach 函数 $(foreach <var>,<list>,<text>)
+这个函数的意思是，把参数<list>中的单词逐一取出放到参数<var>所指定的变量中，然后再执行<text>所包含的表达式。
+每一次<text>会返回一个字符串，循环过程中，<text>的所返回的每个字符串会以空格分隔，最后当整个循环结束时，
+<text>所返回的每个字符串所组成的整个字符串（以空格分隔）将会是foreach函数的返回值。
+
+<var>最好是一个变量名，<list>可以是一个表达式，而<text>中一般会使用<var>这个参数来依次枚举<list>中的单词。举个例子：
+names := a b c d
+files := $(foreach n,$(names),$(n).o)
+上面的例子中，$(name)中的单词会被挨个取出，并存到变量“n”中，“$(n).o”每次根据“$(n)”计算出一个值，这些值以空格分隔，
+最后作为foreach函数的返回，所以，$(files)的值是“a.o b.o c.o d.o”。
+
+注意，foreach中的<var>参数是一个临时的局部变量，foreach函数执行完后，参数<var>的变量将不在作用，
+其作用域只在foreach函数当中。
+
+
+2. if 函数
+$(if <condition>,<then-part>)
+或是
+$(if <condition>,<then-part>,<else-part>)
+可见，if函数可以包含“else”部分，或是不含。即if函数的参数可以是两个，也可以是三个。
+<condition>参数是if的表达式，如果其返回的为非空字符串，那么这个表达式就相当于返回真，
+于是，<then-part>会被计算，否则<else-part> 会被计算。
+
+而if函数的返回值是，如果<condition>为真（非空字符串），那个<then- part>会是整个函数的返回值，
+如果<condition>为假（空字符串），那么<else-part>会是整个函数的返回值，此时如果<else-part>没有被定义，
+那么，整个函数返回空字串。
+
+所以，<then-part>和<else-part>只会有一个被计算。
+
+
+3. call 函数
