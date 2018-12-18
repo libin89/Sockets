@@ -1,0 +1,62 @@
+## 编译内核
+### 修改makefile文件
+* 根据目标机器配置makefile
+* intel 80386: ARCH ?= i386   CROSS_COMPILE ?= i686-none-linux-gnu-
+* 三星 s5cpv210: ARCH ?= arm   CROSS_COMPILE ?= arm-none-linux-gnu-
+
+### 编译内核过程中遇到的几个问题
+1. fatal error: linux/compiler-gcc5.h: No such file or directory
+* copy linux/compiler-gcc4.h to linux/compiler-gcc5.h
+
+2. Can't use 'defined(@array)' (Maybe you should just omit the defined()?) at kernel/timeconst.pl line 373.
+* change if (!defined(@val)) to {改为if (!@val) {后，编译成功。
+
+### 内核配置.config
+* 根据CPU/MCU选择最接近的defconfig
+* cat /proc/cpuinfo | grep "model name"  model name      : Intel(R) Core(TM) i5-8250U CPU @ 1.60GHz
+* 以上可以选择arch/x86/configs/i386_defconfig  这个默认配置一般编出来的image直接就是ok的
+* 如果是其他cpu，比如三星的S5cpv210，选择arch/arm/configs/s5cpv210_defconfig
+* 另外，如果要从头开始定制的话  就使用make allnoconfig，然后根据硬件设备一步步选择配置
+* 可以使用make menuconfig UI界面来配置，这个UI需要apt-get install libnucurses5-dev支持
+
+## 构建基本根文件系统
+### 根文件系统的基本目录结构
+* Linux的根文件系统的目录结构不是随意定义的，而是依照Filesystem Hierarchy Standard Group制定的FHS标准。
+* 从服务器/个人计算机到嵌入式系统，大体上都是遵循这个标准的。
+* /bin 保存系统管理员与用户均会使用的重要命令
+* /boot 系统开机使用的文件，如内核镜像和boot loader的相关文件
+* /dev 设备文件
+* /etc 系统配置
+* /lib 重要的库文件及内核模块
+* /media 可移动存储介质的挂载点
+* /mnt 临时挂载点，当然用户也可以自行选择一些临时挂载点
+* /opt 用户自行安装软件的位置，通常用户也会选择将软件安装在/usr/local目录下
+* /sbin 系统管理员使用的重要的系统命令
+* /tmp 主要是正在执行的程序存放的临时文件
+* /usr 包含系统中安装的主要程序的相关文件，类似MS Windows OS中的“Program files”目录
+* /var 针对的主要是系统在运行过程中经常发生变化的一些数据，比如cache/log/临时的数据库/打印机队列等
+* /home 用户目录保存的地方
+* /root root用户的用户目录
+* /srv 主要用在服务器版本上，是很多服务器软件用来保存数据的目录。比如www服务器使用的网页资料就可以放在/srv/www目录下
+> 几个容易混淆的目录说明：
+* 有四个存放可执行程序的目录：/bin /sbin /usr/bin /usr/sbin。
+* 系统管理员和普通用户都使用的重要命令保存在/bin目录下
+* 仅由系统管理员使用的重要命令保存在/sbin目录下
+* 相应的，不是很重要的命令则分别存放在/usr/bin和/usr/sbin目录下。
+* 同样的道理，重要的系统库一般存放在/lib目录下，其他的库则存放在/usr/lib目录下。
+
+### 构建最基本的根文件系统
+* 由内核进入用户空间（init/main.c）时 执行/bin/sh
+* 在/boot/grub/grub.cfg（bootloader引导配置）中设置'init='
+* menuentry 'vita' {
+    set root='(hd0,5)' //5是分区标号 为根目录 比如sda1 sda5
+    linux /boot/bzImage root=/dev/sda5 ro init=/bin/bash
+}
+* 以上例子是明确告诉内核，第一个进程执行运行/bin/bash，如果用户没有通过命令行参数“init”指定第一个执行的程序，
+* 这个进程将依次尝试执行/sbin，/etc, /bin下的init, 最后尝试执行/bin/sh。
+> 另外，执行bash需要必要的C库支持:
+* 可以使用'readelf -d ./bash | grep NEEDED' to find out which libs are required.
+* **NOTE, file ./bash提示需要解释器/lib/ld-linux.so.2!!!**
+* file ./bash输出：./bash: ELF 32-bit LSB executable, Intel 80386, version 1 (SYSV), dynamically linked, 
+* interpreter /lib/ld-linux.so.2, for GNU/Linux 2.6.32, BuildID[sha1]=e53f89d40c6b2cea5d74682160b3180327877d64, not stripped
+* 所以在根目录下创建/bin /lib目录下，选择vita系统后 正常进入了shell应用程序。
